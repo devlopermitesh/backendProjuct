@@ -1,7 +1,5 @@
-const asynchandler = (higherfunc) => {
-  (req, res, next) => {
-    Promise.resolve(higherfunc(req, res, next)).catch((error) => next(error));
-  };
+const asynchandler = (higherfunc) => (req, res, next) => {
+  Promise.resolve(higherfunc(req, res, next)).catch((error) => next(error));
 };
 
 // const asynchandler = (func) => async (req, res, next) => {
