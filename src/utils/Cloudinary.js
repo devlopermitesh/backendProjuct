@@ -11,10 +11,13 @@ cloudinary.config({
 const uploadOnCloudinary = async (localFilePath) => {
   try {
     if (!localFilePath) return null;
-    const response = cloudinary.uploader.upload(localFilePath, {
+    const response = await cloudinary.uploader.upload(localFilePath, {
       resource_type: "auto",
     });
-    console.log("file is uploaded on  cloudinary", (await response).url);
+    // console.log("file is uploaded on  cloudinary", (await response).url);
+    const isdeleted = fs.unlinkSync(localFilePath);
+
+    console.log(`${isdeleted}`);
     return response;
   } catch (error) {
     fs.unlinkSync(localFilePath); //remove locally saved tempary file  in case of file to load
