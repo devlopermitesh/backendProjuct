@@ -1,9 +1,9 @@
-// require("dotenv").config({ path: "./env" });
+// require("dotenv").config({ path: "./.env" });
 import dotenv from "dotenv";
 import dbconnect from "./db/index.js";
 import { app } from "./app.js";
 
-dotenv.config();
+dotenv.config({ path: "./.env" });
 const port = process.env.PORT || 8000;
 dbconnect()
   .then(() => {
