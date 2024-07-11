@@ -5,7 +5,7 @@ import { asynchandler } from "../utils/asynchandler.js";
 import { uploadOnCloudinary } from "../utils/Cloudinary.js";
 import { Apiresonse } from "../utils/APiresonse.js";
 import cookieParser from "cookie-parser";
-
+import jwt from "jsonwebtoken";
 const generateAccessAndRefereshToken = async (userID) => {
   // console.log("this is your secret key" + );
   try {
@@ -105,7 +105,7 @@ const login = asynchandler(async (req, res) => {
       checkuser._id
     );
     const LoggedInuser = await User.findById(checkuser._id).select(
-      "-password -refreshToken"
+      "-password -refreshtoken"
     );
     const options = {
       httpOnly: true,
@@ -113,7 +113,7 @@ const login = asynchandler(async (req, res) => {
     };
     return res
       .status(200)
-      .cookie("accessToken", accessToken, options)
+      .cookie("accesstoken", accessToken, options)
       .cookie("refereshtoken", refreshToken, options)
       .json(
         new Apiresonse(
@@ -148,4 +148,51 @@ const logoutUser = asynchandler(async (req, res) => {
     .clearCookie("refreshToken", options)
     .json(new Apiresonse(200, {}, "User is logged out"));
 });
-export { registerUser, login, logoutUser };
+
+const refreshAcessToken = asynchandler(async (req, res) => {
+  //access refreshaccestoken?...cookies
+  console.log(req.cookies);
+  const incomingRefreshToken =
+    req.cookies?.refereshtoken || req.body.refereshtoken;
+  if (!incomingRefreshToken) {
+    throw new APiError(401, "unauthorised requist");
+  }
+  try {
+    const decodedToken = jwt.verify(
+      incomingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    );
+    const user = await User.findById(decodedToken?._id).select(
+      "-password -refreshtoken"
+    );
+    if (!user) {
+      throw new APiError(401, "invalid refresh token");
+    }
+    if (incomingRefreshToken !== user?.refreshtoken) {
+      throw new APiError(401, "Refresh token is expired or used");
+    }
+    const options = {
+      httpOnly: true,
+      secure: true,
+    };
+    const { accesstoken, newrefreshToken } =
+      await generateAccessAndRefereshToken(user._id);
+    return res
+      .status(200)
+      .cookie("accesstoken", accesstoken, options)
+      .cookie("refreshtoken", newrefreshToken, options)
+      .json(
+        new Apiresonse(
+          200,
+          { accesstoken, refreshToken: newrefreshToken },
+          "access token is refreshed"
+        )
+      );
+  } catch (error) {
+    throw new APiError(
+      401,
+      `something is went wrong ${error?.message || "::check!!"}`
+    );
+  }
+});
+export { registerUser, login, logoutUser, refreshAcessToken };
