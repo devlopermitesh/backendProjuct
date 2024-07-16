@@ -51,10 +51,10 @@ const UserSchema = mongoose.Schema(
 );
 
 UserSchema.pre("save", async function (next) {
-  // To stop re-hashing the password on every action, use this check
-  if (this.isModified("password")) {
-    this.password = await bcrypt.hash(this.password, 10);
-  }
+  //checking if password is not modified we return to next eithr bcrypt.hash bcrypt then new password
+  if (!this.isModified("password")) return next();
+  this.password = await bcrypt.hash(this.password, 10);
+
   next();
 });
 

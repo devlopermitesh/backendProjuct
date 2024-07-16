@@ -6,13 +6,17 @@ import { uploadOnCloudinary } from "../utils/Cloudinary.js";
 import { Apiresonse } from "../utils/APiresonse.js";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
+import mongoose, { set } from "mongoose";
+import { verifyJwt } from "../middlewares/Authlogin.middlewire.js";
 const generateAccessAndRefereshToken = async (userID) => {
   // console.log("this is your secret key" + );
   try {
     const user = await User.findById(userID);
     const accessToken = await user.generateAccessToken();
     const refreshToken = await user.generateRefreshToken();
-    user.refreshToken = refreshToken;
+    user.refreshtoken = refreshToken;
+    console.log("this is user and going to be save");
+    console.log(user);
     await user.save({ validateBeforeSave: false });
     return { accessToken, refreshToken };
   } catch (error) {
@@ -114,7 +118,7 @@ const login = asynchandler(async (req, res) => {
     return res
       .status(200)
       .cookie("accesstoken", accessToken, options)
-      .cookie("refereshtoken", refreshToken, options)
+      .cookie("refreshtoken", refreshToken, options)
       .json(
         new Apiresonse(
           200,
@@ -134,7 +138,7 @@ const login = asynchandler(async (req, res) => {
 const logoutUser = asynchandler(async (req, res) => {
   await User.findByIdAndUpdate(
     req.user._id,
-    { $set: { refreshToken: undefined } },
+    { $unset: { refreshToken:1 } },
     { new: true }
   );
 
@@ -151,9 +155,8 @@ const logoutUser = asynchandler(async (req, res) => {
 
 const refreshAcessToken = asynchandler(async (req, res) => {
   //access refreshaccestoken?...cookies
-  console.log(req.cookies);
   const incomingRefreshToken =
-    req.cookies?.refereshtoken || req.body.refereshtoken;
+    req.cookies?.refreshtoken || req.body.refreshtoken;
   if (!incomingRefreshToken) {
     throw new APiError(401, "unauthorised requist");
   }
@@ -162,9 +165,8 @@ const refreshAcessToken = asynchandler(async (req, res) => {
       incomingRefreshToken,
       process.env.REFRESH_TOKEN_SECRET
     );
-    const user = await User.findById(decodedToken?._id).select(
-      "-password -refreshtoken"
-    );
+    const user = await User.findById(decodedToken?._id).select("-password ");
+
     if (!user) {
       throw new APiError(401, "invalid refresh token");
     }
@@ -195,4 +197,269 @@ const refreshAcessToken = asynchandler(async (req, res) => {
     );
   }
 });
-export { registerUser, login, logoutUser, refreshAcessToken };
+
+const changeUserPassword = asynchandler(async (req, res) => {
+  //oldpassword,newpassword
+
+  const { oldpassword, newpassword } = req.body;
+  console.log(req.r);
+  //user is already login and thats because he/she can change to feature of changeuserpassword means we have req.user (ref: verifyJwt)
+  const user = await User.findById(req.user?._id);
+  //isPasswordcorrect() take para as oldpassword and bcrypt and compare that with olduserpassword (ref:User.module)
+  const ispasswordcorrect = user.isPasswordCorrect(oldpassword);
+  if (!ispasswordcorrect) {
+    throw new APiError(400, "invalid old password");
+  }
+  //if oldpassword is correct then save new password ref(User.module)
+  user.password = newpassword;
+  await user
+    .save({ validateBeforeSave: false })
+    .then(() => {
+      return res
+        .status(200)
+        .json(new Apiresonse(200, "password is successfull changed!!"));
+    })
+    .catch((error) => {
+      throw new APiError(
+        500,
+        `something went wrong ${error?.message || "your password cant be change"}`
+      );
+    });
+});
+
+const getCurrentUser = asynchandler(async (req, res) => {
+  console.log(req.user);
+  return res
+    .status(200)
+    .json(new Apiresonse(200, req.user, "get current user successfully"));
+});
+
+const updateUserDetail = asynchandler(async (req, res) => {
+  const { fullname } = req.body;
+  if (!fullname) {
+    throw new APiError(400, "full name is required");
+  }
+  const user = User.findByIdAndUpdate(
+    req.user?._id,
+    {
+      $set: {
+        fullname,
+      },
+    },
+    { new: true }
+  ).select("-password");
+  return await res
+    .status(200)
+    .json(new Apiresonse(200, user, "fullname is updated"));
+});
+const updateAvatar = asynchandler(async (req, res) => {
+  const avatarLocalPath = req.file?.path;
+  if (!avatarLocalPath) {
+    throw new APiError(400, "avatar file is missing");
+  }
+  //for delete image from cloudinary
+  const foruser = User.findById(req.user?._id).select(
+    "-password -refreshtoken"
+  );
+
+  if (!foruser) {
+    throw new APiError(500, "User is not found ,something is went wrong");
+  }
+  if (foruser.avatar) {
+    const oldAvatarPublicId = foruser.avatar.split("/").pop().split(".")[0];
+    await cloudinary.uploader.destroy(
+      oldAvatarPublicId,
+      function (error, result) {
+        if (error) {
+          console.error("Error deleting old cover image:", error);
+        } else {
+          console.log("Old cover image deleted successfully:", result);
+        }
+      }
+    );
+  }
+
+  const avatarupdateclodinary = await uploadOnCloudinary(avatarLocalPath);
+
+  if (!avatarupdateclodinary.url) {
+    throw new APiError(400, "Error while uploding Image in avatar");
+  }
+  const user = await User.findByIdAndUpdate(
+    req.user?._id,
+    {
+      $set: {
+        avatar: avatarupdateclodinary.url,
+      },
+    },
+    { new: true }
+  ).select("-password");
+
+  return res.status(200).json(new Apiresonse(200, user, "avatar is updated"));
+});
+const updatecoverImage = asynchandler(async (req, res) => {
+  const coverImageLocalPath = req.file?.path;
+  if (!coverImageLocalPath) {
+    throw new APiError(400, "coverImage file is missing");
+  }
+  const foruser = User.findById(req.user._id);
+
+  const oldCoverPublicId = foruser?.coverImage?.split("/").pop().split(".")[0];
+  await cloudinary.uploader.destroy(oldCoverPublicId, function (error, result) {
+    if (error) {
+      console.error("Error deleting old cover image:", error);
+    } else {
+      console.log("Old cover image deleted successfully:", result);
+    }
+  });
+  const coverImageupdateclodinary =
+    await uploadOnCloudinary(coverImageLocalPath);
+
+  if (!coverImageupdateclodinary.url) {
+    throw new APiError(400, "Error while uploding Image in coverImage");
+  }
+  const user = await User.findByIdAndUpdate(
+    req.user?._id,
+    {
+      $set: {
+        coverImage: coverImageupdateclodinary.url,
+      },
+    },
+    { new: true }
+  );
+  return res
+    .status(200)
+    .json(new Apiresonse(200, user, "coverImage is updated"));
+});
+
+const GetUserChannelProfile = asynchandler(async (req, res) => {
+  const { username } = req.params;
+  if (username?.trim() == "") {
+    throw new APiError(401, "user name is not defined");
+  }
+  const channel = await User.aggregate([
+    {
+      $match: {
+        username: username?.toLowerCase(),
+      },
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "channel",
+        as: "subscribers",
+      },
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subsribeTo",
+      },
+    },
+    {
+      $addFields: {
+        subcriberCount: {
+          $size: { $ifNull: ["$subscribers", []] },
+        },
+        channelsSubsribedTOcount: {
+          $size: { $ifNull: ["$subscribeTo", []] },
+        },
+        issubscribed: {
+          $cond: {
+            if: {
+              $in: [req.user?._id, { $ifNull: ["$subscriber.subcriber", []] }],
+            },
+            then: true,
+            else: false,
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        fullname: 1,
+        username: 1,
+        subcriberCount: 1,
+        channelsSubsribedTOcount: 1,
+        issubscribed: 1,
+        avatar: 1,
+        coverImage: 1,
+        email: 1,
+      },
+    },
+  ]);
+  console.log(channel);
+  if (!channel?.length) {
+    throw new APiError(404, "channel does not exist");
+  }
+  return res
+    .status(200)
+    .json(new Apiresonse(200, channel, "user channel is found successfully"));
+});
+
+const getwatchHistory = asynchandler(async (req, res) => {
+  let history = await User.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(req.user.id),
+      },
+    },
+    {
+      $lookup: {
+        from: "videos",
+        localField: "watchHistory",
+        foreignField: "_id",
+        as: "watchHistory",
+        pipeline: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "owner",
+              foreignField: "_id",
+              as: "owner",
+              pipeline: [
+                {
+                  $project: {
+                    fullname: 1,
+                    username: 1,
+                    avatar: 1,
+                  },
+                },
+              ],
+            },
+          },
+          {
+            $project: {
+              watchHistory: 1,
+            },
+          },
+        ],
+      },
+    },
+  ]);
+  console.log("history is");
+  console.log(history);
+  if (!history) {
+    throw new APiError(404, "watch history not found");
+  }
+
+  res
+    .status(200)
+    .json(new Apiresonse(200, history, "watch history get found successfully"));
+});
+
+export {
+  registerUser,
+  login,
+  logoutUser,
+  refreshAcessToken,
+  changeUserPassword,
+  getCurrentUser,
+  updateAvatar,
+  updateUserDetail,
+  updatecoverImage,
+  GetUserChannelProfile,
+  getwatchHistory,
+};
